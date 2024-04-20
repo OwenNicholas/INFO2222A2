@@ -1,0 +1,366 @@
+
+{% extends 'base.jinja' %}
+
+
+{% block content %} 
+<script> 
+    document.addEventListener('DOMContentLoaded', async event => {  
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+        let encryptedMessages = JSON.parse('{{ messages | tojson | safe }}');
+        let ivs = JSON.parse('{{ iv | tojson | safe }}');
+        let senders = JSON.parse('{{ sender | tojson | safe }}');
+    
+
+        let messages = await decrypt(encryptedMessages, ivs);
+        
+        if (messages) {
+            const messageBox = document.getElementById('message_box');
+            messageBox.innerHTML = ''; 
+            messages.forEach((message, index) => {
+            const messageParagraph = document.createElement('p');
+            const senderText = senders[index] || 'Unknown';
+            messageParagraph.textContent = `${senderText}: ${message || 'Error decrypting message'}`;
+            messageBox.appendChild(messageParagraph);
+        });
+
+        }
+        
+    
+        join_room(); 
+    });
+    
+</script>
+
+
+   <style>
+    nav {
+        border-bottom: 1px solid black;
+        overflow: auto
+    }
+
+    #message_box {
+        border: 1px solid black; 
+        height: 400px; 
+        width: 800px; 
+  
+        overflow: auto;
+        padding: 2px;
+    }
+
+    .text  {
+        margin-top: 2px;
+        margin-bottom: 2px;
+    }
+
+</style>
+
+
+<nav style="border-bottom: 1px solid black;">
+    <ol style="float: right">
+        <li style="display:inline-block">Username:  {{ username }} </li>
+    </ol>
+</nav>
+
+<h1>Messaging App </h1>
+<form action="{{ url_for('index') }}" method="get">
+    <button type="submit" onclick="leave()" class="back-button">Back</button>
+
+</form>
+<h2>Chatting With {{receiver}}<h2>
+
+
+
+<main>
+
+    <section id="message_box">
+   
+    </section>
+
+    <section id="input_box" style="display: none" >
+        <p class="text">Message: </p>
+        <input id="message" placeholder="message">
+        <button id="sendButton" onclick="send()">Send</button>
+        
+        <button onclick="leave()">Leave Room</button>
+    </section>
+</main>
+
+
+
+
+<script src="/static/js/libs/socket.io.min.js"></script>
+<script>
+    let room_id = 0;
+
+    $("#message").on("keyup", (e) => {
+        if (e.key == "Enter") {
+            send();
+        }
+    })
+
+
+     $("#receiver").on("keyup", (e) => {
+        if (e.key == "Enter") {
+            join_room();
+        }
+    })
+
+
+    $(document).ready(() => {
+        if (Cookies.get("room_id") == undefined) {
+            return;
+        }
+
+        $("#chat_box").hide();
+        $("#input_box").show();
+        room_id = parseInt(Cookies.get("room_id"));
+    })
+    
+    let username = "{{ username }}";
+
+    Cookies.set('username', username);
+
+    const socket = io();
+
+    socket.on("incoming", (msg, color="black") => {
+        add_message(msg, color);
+        
+    })
+
+    socket.on("chat_enabled", data => {
+        if (data.status) {
+            $("#input_box").show();
+            $("#sendButton").show();
+        }
+    });
+    socket.on("chat_disabled", data => {
+        if (!data.status) {
+            $("#sendButton").hide();
+            alert("Waiting for another user to join the chat.");
+        }
+    });
+
+    
+    async function send() {
+
+        if ($("#sendButton").is(":visible")) {
+            let message = $("#message").val();
+            $("#message").val("");
+            socket.emit("send", username, message, room_id);
+            save(message);
+        } 
+        else {
+            alert("Wait for another user to join the room.");
+        }
+    } 
+    
+
+
+
+
+
+    function join_room() {
+       
+        let receiver = "{{receiver}}";
+
+
+        socket.emit("join", username, receiver, (res) => {
+            if (typeof res != "number") {
+                alert(res);
+                return;
+            }
+
+            room_id = res;
+            Cookies.set("room_id", room_id);
+
+            $("#chat_box").hide();
+            $("#input_box").show();
+        });
+     
+    }
+
+
+    function leave() {
+        Cookies.remove("room_id");
+        socket.emit("leave", username, room_id);
+        $("#input_box").hide();
+        $("#chat_box").show();
+    }
+
+
+    function add_message(message, color) {
+        let box = $("#message_box");
+        let child = $(`<p style="color:${color}; margin: 0px;"></p>`).text(message);
+        box.append(child);
+    }
+    function isValidURL(string) {
+        if (string.length == 0) {
+            return false;
+        }
+        if (string[0] == "/") {
+            return true;
+        }
+        return false;
+    }
+
+    async function encryptMessage(key, data) {
+        const iv = window.crypto.getRandomValues(new Uint8Array(12)); 
+        const encrypted = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            key,
+            new TextEncoder().encode(data)
+        );
+        return { iv, encrypted };
+    }
+    
+    async function decryptMessage(key, iv, encryptedData) {
+        try {
+            const encryptedBytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+            const ivArray = new Uint8Array(iv);
+            const decrypted = await window.crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: ivArray },
+                key,
+                encryptedBytes
+            );
+
+            const decryptedString = new TextDecoder().decode(decrypted);
+            return decryptedString;
+        } catch (error) {
+            console.error('Error decrypting message:', error);
+            throw new Error("Decryption failed: " + error.message); 
+        }
+    }
+
+
+
+
+
+    function arrayBufferToBase64(buffer) {
+        const binary = new Uint8Array(buffer);
+        return btoa(String.fromCharCode.apply(null, binary));
+    }
+    function base64ToUint8Array(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+    }
+    
+
+    
+    
+    
+    async function save(message) {
+
+        const keyData = localStorage.getItem(username);
+        const key = await window.crypto.subtle.importKey(
+            "jwk", 
+            JSON.parse(keyData), 
+            { name: "AES-GCM" }, 
+            true, 
+            ["encrypt", "decrypt"]
+        );
+
+        const { iv, encrypted } = await encryptMessage(key, message);
+
+        const encryptedString = arrayBufferToBase64(encrypted)
+        
+        
+        const ivBase64 = arrayBufferToBase64(iv);
+        
+
+
+        let loginURL = "{{ url_for('send_messages') }}";
+        try {
+            let res = await axios.post(loginURL, {
+                username: "{{username}}",
+                friend: "{{receiver}}",
+                message: encryptedString,
+                iv : ivBase64
+            });
+            if (!isValidURL(res.data)) {
+        
+                alert(res.data);
+                return;
+            }
+
+        } catch (error) {
+            console.error('Error sending data:', error);
+            alert('Failed to send message.');
+        }
+    }
+
+
+    async function decrypt(messages,iv){
+        try {
+            if (messages != null && iv != null ){
+
+                const keyData = localStorage.getItem(username)
+                if (!keyData) {
+                    throw new Error('No key data available.');
+                }
+                
+                    
+    
+                const key = await window.crypto.subtle.importKey(
+                    "jwk",
+                    JSON.parse(keyData),
+                    { name: "AES-GCM" },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+
+                
+                
+
+                for (let i=0; i < messages.length;i ++) {
+                    messages[i] = await decryptMessage(key, base64ToUint8Array(iv[i]), messages[i])
+    
+                }
+            }
+
+        }catch(error){
+            console.error("error");
+
+        }
+
+        
+            
+
+        return messages;
+
+        
+
+    }
+
+    
+        
+
+
+
+    
+    
+</script>
+
+
+
+
+
+{% endblock %}

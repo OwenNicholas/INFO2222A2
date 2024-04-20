@@ -1,0 +1,212 @@
+
+
+{% extends 'base.jinja' %}
+
+{% block content %} 
+    <style>
+    nav {
+        border-bottom: 1px solid black;
+        overflow: auto
+    }
+    </style>
+
+
+    
+    <nav style="border-bottom: 1px solid black;">
+        <ol style="float: right">
+            <li style="display:inline-block">Username:  {{ username }} </li>
+        </ol>
+    </nav>
+
+    
+
+
+
+    <form action="{{ url_for('index') }}" method="get">
+        <button type="submit" class="back-button">Back</button>
+    </form>
+
+
+
+    <h1>Friends List</h1>
+
+    <h2>Choose a friend to chat with:</h2>
+    <ul>
+        {% for friend in friends %}
+            <li>{{ friend }} <button onclick="chatWith('{{ friend }}')">Chat</button></li>
+        {% else %}
+            <li>No friends found.</li>
+        {% endfor %}
+    </ul>
+
+
+
+
+    <p>Add Friends</p>
+    <input id= "friend_username"/>
+    <button onclick="add_friend()">Add</button>
+
+    <p>                 </p>
+    <p> Friend Requests </p>
+    <p> Received        </p>
+        <ul>
+            {% for request in friend_requests %}
+                <li>{{ request }}  
+                    <button onclick="respond_friend_acc('{{ request.sender_id }}')">Accept</button> 
+                    <button onclick="respond_friend_rej('{{ request.sender_id }}')">Reject</button>
+                 </li>
+            {% else %}
+                <li>No requests found.</li>
+            {% endfor %}
+        </ul>
+    <p                 <p>
+    <p> Sent            <p>
+        <ul>
+            {% for sent in sent_friend_requests %}
+                <li>{{ sent.sent_to() }}</li>
+            {% else %}
+                <li>No requests sent.</li>
+            {% endfor %}
+        </ul>
+    <p>Refresh Page<p>
+    <button onclick="window.location.reload();">Refresh Page</button>
+    
+
+
+    
+
+
+
+    <script>
+        function isValidURL(string) {
+           if (string.length == 0) {
+               return false;
+           }
+           if (string[0] == "/") {
+               return true;
+           }
+           return false;
+       }
+
+       async function add_friend() {
+           let loginURL = "{{ url_for('add_friend') }}";
+           let res = await axios.post(loginURL, {
+               username : "{{ username }}",
+               friend_username: $("#friend_username").val()
+           });
+           
+           if (!isValidURL(res.data)) {
+               alert(res.data);
+               return;
+           }
+
+           window.open(res.data, "_self")
+       }
+
+        
+       async function respond_friend_acc(sender_id) {
+        let loginURL = "{{ url_for('respond_to_request') }}";
+        let res = await axios.post(loginURL, {
+            username : "{{ username }}",
+            sender : sender_id,
+            action: "accept"
+        });
+        if (!isValidURL(res.data)) {
+            alert(res.data);
+            return;
+        }
+        window.open(res.data, "_self")
+        }
+
+        async function respond_friend_rej(sender_id) {
+            let loginURL = "{{ url_for('respond_to_request') }}";
+            let res = await axios.post(loginURL, {
+                username : "{{ username }}",
+                sender : sender_id, 
+                action: "reject"
+            });
+            if (!isValidURL(res.data)) {
+                alert(res.data);
+                return;
+            }
+            window.open(res.data, "_self")
+            }
+            function hexStringToUint8Array(hexString) {
+                if (hexString.length % 2 !== 0) {
+                    throw "Invalid hexString";
+                }
+                var arrayBuffer = new Uint8Array(hexString.length / 2);
+            
+                for (var i = 0; i < hexString.length; i += 2) {
+                    var byteValue = parseInt(hexString.substr(i, 2), 16);
+                    arrayBuffer[i / 2] = byteValue;
+                }
+            
+                return arrayBuffer;
+            }
+
+            async function deriveKey(password) {
+                const encoder = new TextEncoder();
+                const data = encoder.encode(password);
+                const salt = hexStringToUint8Array("{{salt}}");
+                
+                const keyMaterial = await window.crypto.subtle.importKey("raw", data, "PBKDF2", false, ["deriveKey"]);
+                const key = await window.crypto.subtle.deriveKey(
+                    { "name": "PBKDF2", salt: salt, "iterations": 100000, "hash": "SHA-256" },
+                    keyMaterial,
+                    { "name": "AES-GCM", "length": 256 },
+                    true,  
+                    ["encrypt", "decrypt"]
+
+                );
+                
+                
+                return key;
+                
+            }
+
+            async function chatWith(friend) {
+                const username = "{{username}}"
+                
+  
+                try {
+                    const key = await deriveKey("{{password}}");
+                    const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
+                    localStorage.setItem(username, JSON.stringify(exportedKey));
+
+                } catch(error){
+                    console.error(error);   
+                }
+                
+
+                
+
+
+                
+
+                let loginURL = "{{ url_for('chat_user') }}";
+                let res = await axios.post(loginURL, {
+                    username : "{{ username }}",
+                    friend : friend
+                });
+                if (!isValidURL(res.data)) {
+                    alert(res.data);
+                    return;
+                }
+                window.open(res.data, "_self")
+                }
+
+        
+
+
+
+   </script>
+
+
+
+
+</body>
+</html>
+
+
+{% endblock %}
