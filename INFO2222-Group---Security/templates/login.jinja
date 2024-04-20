@@ -16,7 +16,7 @@
         <button type="submit" class="back-button">Back</button>
     </form>
 
-
+     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
     <script>
 
         // basically checks if the server returns an Error message instead of a URL
@@ -35,10 +35,12 @@
         async function login() {
           
             let loginURL = "{{ url_for('login_user') }}";
+            const password = $("#password").val();
+            const hashedPassword = CryptoJS.SHA256(password).toString(CryptoJS.enc.Hex);
 
             let res = await axios.post(loginURL, {
                 username: $("#username").val(),
-                password: $("#password").val()
+                password: hashedPassword,
             });
        
             if (!isValidURL(res.data)) {

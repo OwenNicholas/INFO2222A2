@@ -17,6 +17,8 @@
         </form>
 
 
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
     <script>
         function isValidURL(string) {
             if (string.length === 0) {
@@ -27,9 +29,11 @@
 
         async function signup() {
             let signupURL = "{{ url_for('signup_user') }}";
+            const password = $("#password").val();
+            const hashedPassword = CryptoJS.SHA256(password).toString(CryptoJS.enc.Hex);
             const response = await axios.post(signupURL, {
                 username: $("#username").val(),
-                password: $("#password").val(),
+                password: hashedPassword,
             });
 
             console.log(response.data);

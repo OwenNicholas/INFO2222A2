@@ -106,10 +106,10 @@ def signup_user():
 
     username = request.json.get("username")
     password = request.json.get("password")
-    print("Username", username)
+
+    print("password: ", password)
 
     if db.get_user(username) is None:
-        print("insert")
         db.insert_user(username, password)
         return url_for('friends_list', username=username)
     return "Error: User already exists!"

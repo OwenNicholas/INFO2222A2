@@ -35,6 +35,7 @@ def insert_user(username: str, password: str):
 def get_user(username: str):
     with Session(engine) as session:
         return session.get(User, username)
+
     
 #Friend successfully added to database
 def add_friend(username: str, friend_username: str):
