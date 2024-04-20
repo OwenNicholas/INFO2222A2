@@ -1,0 +1,359 @@
+<!-- 
+    Here you'll find the main exhibit: the chat application code. Feel free to look around!
+-->
+{% extends 'base.jinja' %}
+
+
+{% block content %} 
+
+<script src="/static/js/libs/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script> <!-- Make sure Axios is included if you are using it -->
+
+
+<script> 
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        try{
+            const keyPair = await window.crypto.subtle.generateKey({
+                name: "RSA-OAEP",
+                modulusLength: 2048,
+                publicExponent: new Uint8Array([1, 0, 1]),
+                hash: { name: "SHA-256" }
+            }, true, ["encrypt", "decrypt"]);
+
+            const [exportedPublicKey, exportedPrivateKey] = await Promise.all([
+                window.crypto.subtle.exportKey("spki", keyPair.publicKey),
+                window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey) 
+            ]);
+
+            const public_key = btoa(String.fromCharCode(...new Uint8Array(exportedPublicKey)));
+            window.private_key = btoa(String.fromCharCode(...new Uint8Array(exportedPrivateKey))); 
+            //console.log("private key set window",window.private_key);
+
+            let chatURL = "{{ url_for('chat_user') }}";
+            await axios.post(chatURL, { 
+                username: "{{ username }}",   
+                friend: "{{ receiver }}",
+                public_key: public_key 
+            });
+
+            //privateKey = private_key;
+            
+            join_room();
+        }        
+        catch (err) {
+            console.error("Error during key generation or AJAX request:", err);
+        }
+    });
+</script>
+
+
+   <style>
+    nav {
+        border-bottom: 1px solid black;
+        overflow: auto
+    }
+
+    #message_box {
+        border: 1px solid black; 
+        height: 400px; 
+        width: 800px; 
+        overflow: auto;
+        padding: 2px;
+    }
+
+    .text  {
+        margin-top: 2px;
+        margin-bottom: 2px;
+    }
+
+</style>
+
+<!--Navbar, you'll see the username here-->
+<nav style="border-bottom: 1px solid black;">
+    <ol style="float: right">
+        <li style="display:inline-block">Username:  {{ username }} </li>
+    </ol>
+</nav>
+
+<h1>Messaging App </h1>
+<form action="{{ url_for('index') }}" method="get">
+    <button type="submit" class="back-button">Back</button>
+</form>
+<h2>Chatting With {{receiver}}<h2>
+
+<main>
+    <!-- The messages are displayed here -->
+    <section id="message_box"></section>
+
+    <!-- The (message) input box is set to display: none initially, 
+    this means the input box is "invisible" initially-->
+    <section id="input_box" style="display: none" >
+        <p class="text">Message: </p>
+        <input id="message" placeholder="message">
+        <button id="sendButton" onclick="send()">Send</button>
+        <button onclick="leave()">Leave Room</button>
+    </section>
+</main>
+
+<script src="/static/js/libs/socket.io.min.js"></script>
+<script>
+    let room_id = 0;
+
+    // when the user presses the "Enter" key inside of the "message box", 
+    // the message is sent to the server
+    $("#message").on("keyup", (e) => {
+        if (e.key == "Enter") {
+            send();
+        }
+    })
+
+    // when the user presses the enter key inside of the "receiver box"
+    // the user joins a (socket) room
+     $("#receiver").on("keyup", (e) => {
+        if (e.key == "Enter") {
+            join_room();
+        }
+    })
+
+
+    $(document).ready(() => {
+        // room_id is undefined if the user hasn't joined a room
+        // we early return in this case
+        if (Cookies.get("room_id") == undefined) {
+            return;
+        }
+
+        // the user has already joined an existing room
+        // we'll display the message box, instead of the "Chat with: " box
+        $("#chat_box").hide();
+        $("#input_box").show();
+        room_id = parseInt(Cookies.get("room_id"));
+    })
+    
+    // Here's the Socket IO part of the code
+    // things get a bit complicated here so brace yourselves :P
+    let username = "{{ username }}";
+
+    Cookies.set('username', username);
+
+    // initializes the socket
+    const socket = io();
+
+    // an incoming message arrives, we'll add the message to the message box
+    socket.on("incoming", (msg, color="black") => {
+        add_message(msg, color);
+    })
+   
+
+    socket.on("chat_enabled", data => {
+        if (data.status) {
+            $("#input_box").show();
+            $("#sendButton").show();
+            
+        }
+    });
+
+    socket.on("chat_disabled", data => {
+        if (!data.status) {
+            $("#sendButton").hide();
+            alert("Waiting for another user to join the chat.");
+        }
+    });
+
+
+    
+    // we'll send the message to the server by emitting a "send" event
+    async function send() {
+        if ($("#sendButton").is(":visible")) {
+            let message = $("#message").val();
+            $("#message").val("");
+
+            try {
+                const response = await axios.post('/getPublicKey', { username: "{{ receiver }}" });
+                friendsPublicKey = response.data.public_key;
+                console.log(friendsPublicKey);
+            }
+            catch (error) {
+                console.error('Error fetching public key:', error.response ? error.response.data.error : error.message);
+                alert('Failed to fetch friend public key. Cannot send message.');
+                return;
+            }
+            
+            const encryptedMessage = await encrypt_message(message, friendsPublicKey);
+            if (!encryptedMessage) {
+                alert('Failed to encrypt message.');
+                return;
+            }
+            buffer = Array.from(new Uint8Array(encryptedMessage)); // Convert Uint8Array to regular array for JSON transmission
+            // Emit the encrypted message
+            socket.emit("send", username, buffer, room_id);
+            //socket.emit("send", username, message, room_id);
+        }
+        else {
+                alert("Wait for another user to join the room.");
+            }
+    } 
+
+    // we emit a join room event to the server to join a room
+    function join_room() {
+       
+        let receiver = "{{receiver}}";
+
+        // pass in the receiver of our message to the server
+        // as well as the current user's username
+        socket.emit("join", username, receiver, (res) => {
+            // res is a string with the error message if the error occurs
+            // this is a pretty bad way of doing error handling, but watevs
+            if (typeof res != "number") {
+                alert(res);
+                return;
+            }
+
+            // set the room id variable to the room id returned by the server
+            room_id = res;
+            Cookies.set("room_id", room_id);
+
+            // now we'll show the input box, so the user can input their message
+            $("#chat_box").hide();
+            $("#input_box").show();
+        });
+     
+    }
+
+    // function when the user clicks on "Leave Room"
+    // emits a "leave" event, telling the server that we want to leave the room
+    function leave() {
+        Cookies.remove("room_id");
+        socket.emit("leave", username, room_id);
+        $("#input_box").hide();
+        $("#chat_box").show();
+    }
+
+    // function to add a message to the message box
+    // called when an incoming message has reached a client
+    function add_message(encryptedMessage, color) {
+        let box = $("#message_box");
+        let child = $(`<p style="color:${color}; margin: 0px;"></p>`).text(encryptedMessage);
+        box.append(child);
+        /*
+        decrypt_message(encryptedMessage).then(decryptedMessage => {
+        if (decryptedMessage) {
+            let box = $("#message_box");
+            let child = $(`<p style="color:${color}; margin: 0px;"></p>`).text(decryptedMessage);
+            box.append(child);
+        } else {
+            console.error("Failed to decrypt message");
+            // Optionally handle undecryptable messages differently
+            // e.g., show a placeholder or an error message
+        }
+    }).catch(error => {
+        console.error("Error in decryption process:", error);
+    });
+    */
+    }
+
+
+
+
+    async function encrypt_message(message, friendsPublicKey) {
+
+        // Convert the Base64 string back to an ArrayBuffer to use with Web Crypto API
+        const binaryDerString = window.atob(friendsPublicKey);
+        const binaryDer = new Uint8Array(binaryDerString.length);
+        for (let i = 0; i < binaryDerString.length; i++) {
+            binaryDer[i] = binaryDerString.charCodeAt(i);
+        }
+
+        // Import the public key for encryption
+        try {
+            const importedKey = await window.crypto.subtle.importKey(
+                "spki",
+                binaryDer,
+                {
+                    name: "RSA-OAEP",
+                    hash: {name: "SHA-256"}
+                },
+                false, // whether the key is extractable (i.e., can be used in exportKey)
+                ["encrypt"]
+            );
+
+            // Encode the message to a Uint8Array
+            const encoder = new TextEncoder();
+            const encodedMessage = encoder.encode(message);
+
+            // Encrypt the message
+            const encrypted = await window.crypto.subtle.encrypt(
+                {name: "RSA-OAEP"},
+                importedKey,
+                encodedMessage
+            );
+
+            // Return the encrypted message as a Uint8Array
+            return new Uint8Array(encrypted);
+        } catch (error) {
+            console.error("Encryption failed:", error);
+            return null;
+        }
+    }
+
+
+    async function decrypt_message(ciphertext) {
+        if (!window.private_key) {
+            console.error("No private key available for decryption");
+            return null;
+        }
+
+        // Convert the Base64-encoded private key to an ArrayBuffer
+        const binaryDerString = window.atob(window.private_key);
+        const binaryDer = new Uint8Array(binaryDerString.length);
+        for (let i = 0; i < binaryDerString.length; i++) {
+            binaryDer[i] = binaryDerString.charCodeAt(i);
+        }
+
+        try {
+            // Import the private key for decryption
+            const importedPrivateKey = await window.crypto.subtle.importKey(
+                "pkcs8",
+                binaryDer.buffer,  // Convert Uint8Array to ArrayBuffer
+                {
+                    name: "RSA-OAEP",
+                    hash: {name: "SHA-256"}
+                },
+                false,  // The key is not extractable
+                ["decrypt"]
+            );
+
+            // Assuming ciphertext is a Base64 string; convert it to ArrayBuffer
+            const binaryCiphertextString = window.atob(ciphertext);
+            const binaryCiphertext = new Uint8Array(binaryCiphertextString.length);
+            for (let i = 0; i < binaryCiphertextString.length; i++) {
+                binaryCiphertext[i] = binaryCiphertextString.charCodeAt(i);
+            }
+
+            // Decrypt the ciphertext
+            const decrypted = await window.crypto.subtle.decrypt(
+                {name: "RSA-OAEP"},
+                importedPrivateKey,
+                binaryCiphertext.buffer  // Convert Uint8Array to ArrayBuffer
+            );
+
+            // Decode the decrypted message
+            const decoder = new TextDecoder();
+            const plainText = decoder.decode(decrypted);
+            return plainText;
+        } 
+        catch (error) {
+            console.error("Decryption failed:", error);
+            return null;
+        }
+    }
+
+
+
+
+   
+
+    
+</script>
+{% endblock %}

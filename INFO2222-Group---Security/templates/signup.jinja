@@ -1,0 +1,44 @@
+    <!-- 
+    Sign up page, pretty much the same as login.
+    -->
+    {% extends 'base.jinja' %}
+
+
+    {% block content %} 
+        <h1>Sign Up</h1>
+        <p>Username</p>
+        <input id="username"/>
+        <p>Password</p>
+        <input id="password" type="password"/>
+        <button onclick="signup()">Sign up</button>
+    
+        <form action="{{ url_for('index') }}" method="get">
+            <button type="submit" class="back-button">Back</button>
+        </form>
+
+
+    <script>
+        function isValidURL(string) {
+            if (string.length === 0) {
+                return false;
+            }
+            return string[0] === "/";
+        }
+
+        async function signup() {
+            let signupURL = "{{ url_for('signup_user') }}";
+            const response = await axios.post(signupURL, {
+                username: $("#username").val(),
+                password: $("#password").val(),
+            });
+
+            console.log(response.data);
+            if (!isValidURL(response.data)) {
+                alert(response.data);
+                return;
+            }
+            window.open(response.data, "_self");
+        }
+    </script>
+
+    {% endblock %}
